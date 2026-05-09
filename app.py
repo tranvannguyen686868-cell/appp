@@ -69,12 +69,12 @@ app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=180)
 app.json.ensure_ascii = False
 
 MODEL_NAME = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
-API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
-API_KEYS_RAW = (os.getenv("GEMINI_API_KEYS", "") or "").strip()
+LEGACY_GEMINI_API_KEY_PRESENT = bool((os.getenv("GEMINI_API_KEY", "") or "").strip())
+GEMINI_API_KEYS_RAW = (os.getenv("GEMINI_API_KEYS", "") or "").strip()
 GEMINI_API_KEY_POOL = tuple(
     dict.fromkeys(
         key.strip()
-        for key in [*re.split(r"[\n,;]+", API_KEYS_RAW), API_KEY]
+        for key in re.split(r"[\n,;]+", GEMINI_API_KEYS_RAW)
         if (key or "").strip()
     )
 )
@@ -177,6 +177,24 @@ model = None
 if genai and GEMINI_API_KEY_POOL:
     genai.configure(api_key=GEMINI_API_KEY_POOL[0])
     model = genai.GenerativeModel(MODEL_NAME)
+
+if LEGACY_GEMINI_API_KEY_PRESENT:
+    app.logger.warning(
+        "Bo qua bien moi truong GEMINI_API_KEY cu. Backend chi doc GEMINI_API_KEYS tu ban nay tro di."
+    )
+
+app.logger.info(
+    "AI backend config: gemini_key_pool_size=%s legacy_single_key_ignored=%s fallback_provider=%s fallback_configured=%s",
+    len(GEMINI_API_KEY_POOL),
+    LEGACY_GEMINI_API_KEY_PRESENT,
+    FALLBACK_AI_PROVIDER or "",
+    bool(
+        FALLBACK_AI_PROVIDER
+        and FALLBACK_AI_BASE_URL
+        and FALLBACK_AI_MODEL
+        and FALLBACK_AI_API_KEY_POOL
+    ),
+)
 
 knowledge = KNOWLEDGE_PATH.read_text(encoding="utf-8") if KNOWLEDGE_PATH.exists() else ""
 knowledge_chunks = [line.strip() for line in knowledge.splitlines() if line.strip()]
@@ -937,17 +955,17 @@ def get_gemini_unavailable_reason(user_row: sqlite3.Row | None) -> str:
 
 
 def build_gemini_diag_context(user_row: sqlite3.Row | None) -> dict:
-    personal_key = get_personal_gemini_api_key(user_row)
     return {
         **build_auth_diag_context(),
         "gemini_sdk_available": genai is not None,
-        "env_gemini_key_present": bool(API_KEY),
+        "env_gemini_keys_present": bool(GEMINI_API_KEYS_RAW),
         "gemini_key_pool_size": len(GEMINI_API_KEY_POOL),
+        "legacy_gemini_api_key_ignored": LEGACY_GEMINI_API_KEY_PRESENT,
         "fallback_provider": FALLBACK_AI_PROVIDER or None,
         "fallback_configured": has_fallback_ai_config(),
         "fallback_key_pool_size": len(FALLBACK_AI_API_KEY_POOL),
-        "has_personal_gemini_key": bool(personal_key),
-        "personal_gemini_key_preview": mask_secret(personal_key),
+        "has_personal_gemini_key": False,
+        "personal_gemini_key_preview": "",
         "user_row_present": user_row is not None,
         "user_updated_at": user_row["updated_at"] if user_row else None,
     }
@@ -1018,7 +1036,6 @@ def init_db() -> None:
         phone_number TEXT NOT NULL UNIQUE,
         password_hash TEXT NOT NULL,
         care_role_key TEXT NOT NULL DEFAULT '',
-        gemini_api_key TEXT NOT NULL DEFAULT '',
         is_active INTEGER NOT NULL DEFAULT 1,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
@@ -1233,10 +1250,10 @@ def init_db() -> None:
         row["name"]
         for row in db.execute("PRAGMA table_info(users)").fetchall()
     }
-    if "gemini_api_key" not in user_columns:
-        db.execute("ALTER TABLE users ADD COLUMN gemini_api_key TEXT NOT NULL DEFAULT ''")
     if "care_role_key" not in user_columns:
         db.execute("ALTER TABLE users ADD COLUMN care_role_key TEXT NOT NULL DEFAULT ''")
+    if "gemini_api_key" in user_columns:
+        db.execute("UPDATE users SET gemini_api_key = '' WHERE gemini_api_key <> ''")
 
     relationship_columns = {
         row["name"]
@@ -1696,37 +1713,22 @@ def change_password():
 @app.route("/api/me/gemini-key", methods=["POST"])
 @pin_required
 def update_gemini_key():
-    payload = require_json()
-    api_key = (payload.get("api_key") or "").strip()
-
-    if not api_key:
-        return json_error("Ban can nhap Gemini API key truoc khi luu.", 400, "missing_gemini_api_key")
-
-    get_db().execute(
-        "UPDATE users SET gemini_api_key = ?, updated_at = ? WHERE id = ?",
-        (api_key, utcnow_iso(), g.current_user["id"]),
-    )
-    get_db().commit()
+    purge_user_personal_gemini_key(g.current_user["id"])
     g.current_user = fetch_user_by_id(g.current_user["id"])
     log_mobile_diag(
-        "gemini_key_saved",
-        submitted_key_length=len(api_key),
+        "gemini_key_save_ignored",
         **build_gemini_diag_context(g.current_user),
     )
-    return jsonify({"message": "Da luu Gemini API key ca nhan.", "user": serialize_user(g.current_user)})
+    return jsonify({"message": "Backend da tat tinh nang luu Gemini API key ca nhan.", "user": serialize_user(g.current_user)})
 
 
 @app.route("/api/me/gemini-key", methods=["DELETE"])
 @pin_required
 def clear_gemini_key():
-    get_db().execute(
-        "UPDATE users SET gemini_api_key = '', updated_at = ? WHERE id = ?",
-        (utcnow_iso(), g.current_user["id"]),
-    )
-    get_db().commit()
+    purge_user_personal_gemini_key(g.current_user["id"])
     g.current_user = fetch_user_by_id(g.current_user["id"])
     log_mobile_diag("gemini_key_cleared", **build_gemini_diag_context(g.current_user))
-    return jsonify({"message": "Da xoa Gemini API key ca nhan.", "user": serialize_user(g.current_user)})
+    return jsonify({"message": "Da xoa du lieu Gemini API key ca nhan cu tren backend.", "user": serialize_user(g.current_user)})
 
 
 @app.route("/api/families/current", methods=["GET"])
@@ -4479,14 +4481,21 @@ def mask_secret(value: str) -> str:
     return f"{trimmed[:4]}...{trimmed[-4:]}"
 
 
-def get_personal_gemini_api_key(user_row: sqlite3.Row | None) -> str:
-    if not user_row:
-        return ""
-    return (user_row["gemini_api_key"] or "").strip()
+def purge_user_personal_gemini_key(user_id: int) -> None:
+    user_columns = {
+        row["name"]
+        for row in get_db().execute("PRAGMA table_info(users)").fetchall()
+    }
+    if "gemini_api_key" not in user_columns:
+        return
+    get_db().execute(
+        "UPDATE users SET gemini_api_key = '', updated_at = ? WHERE id = ?",
+        (utcnow_iso(), user_id),
+    )
+    get_db().commit()
 
 
 def serialize_user(user_row: sqlite3.Row) -> dict:
-    personal_key = get_personal_gemini_api_key(user_row)
     care_role_key = (user_row["care_role_key"] or "").strip()
     return {
         "id": user_row["id"],
@@ -4498,8 +4507,8 @@ def serialize_user(user_row: sqlite3.Row) -> dict:
         "care_role_label": RELATIONSHIP_LABELS.get(care_role_key, ""),
         "created_at": user_row["created_at"],
         "updated_at": user_row["updated_at"],
-        "has_personal_gemini_key": bool(personal_key),
-        "gemini_key_preview": mask_secret(personal_key),
+        "has_personal_gemini_key": False,
+        "gemini_key_preview": "",
     }
 
 
