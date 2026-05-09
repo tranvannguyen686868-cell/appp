@@ -83,76 +83,21 @@ GEMINI_GENERATION_CONFIG = {
     "candidate_count": 1,
     "max_output_tokens": 768,
 }
-DEFAULT_PRIMARY_AI_PROVIDER = "groq"
-DEFAULT_GROQ_BASE_URL = "https://api.groq.com/openai/v1/chat/completions"
-DEFAULT_GROQ_MODEL = "llama-3.3-70b-versatile"
-PRIMARY_AI_PROVIDER_RAW = (os.getenv("PRIMARY_AI_PROVIDER", "") or "").strip().lower()
-PRIMARY_AI_BASE_URL_RAW = (os.getenv("PRIMARY_AI_BASE_URL", "") or "").strip()
-PRIMARY_AI_MODEL_RAW = (os.getenv("PRIMARY_AI_MODEL", "") or "").strip()
-PRIMARY_AI_API_KEY_RAW = (os.getenv("PRIMARY_AI_API_KEY", "") or "").strip()
-PRIMARY_AI_API_KEYS_RAW = (os.getenv("PRIMARY_AI_API_KEYS", "") or "").strip()
-LEGACY_FALLBACK_AI_PROVIDER_RAW = (os.getenv("FALLBACK_AI_PROVIDER", "") or "").strip().lower()
-LEGACY_FALLBACK_AI_BASE_URL_RAW = (os.getenv("FALLBACK_AI_BASE_URL", "") or "").strip()
-LEGACY_FALLBACK_AI_MODEL_RAW = (os.getenv("FALLBACK_AI_MODEL", "") or "").strip()
-LEGACY_FALLBACK_AI_API_KEY_RAW = (os.getenv("FALLBACK_AI_API_KEY", "") or "").strip()
-LEGACY_FALLBACK_AI_API_KEYS_RAW = (os.getenv("FALLBACK_AI_API_KEYS", "") or "").strip()
-PRIMARY_AI_PROVIDER = PRIMARY_AI_PROVIDER_RAW or LEGACY_FALLBACK_AI_PROVIDER_RAW or DEFAULT_PRIMARY_AI_PROVIDER
-PRIMARY_AI_BASE_URL = PRIMARY_AI_BASE_URL_RAW or LEGACY_FALLBACK_AI_BASE_URL_RAW
-if not PRIMARY_AI_BASE_URL and PRIMARY_AI_PROVIDER == "groq":
-    PRIMARY_AI_BASE_URL = DEFAULT_GROQ_BASE_URL
-PRIMARY_AI_MODEL = PRIMARY_AI_MODEL_RAW or LEGACY_FALLBACK_AI_MODEL_RAW
-if not PRIMARY_AI_MODEL and PRIMARY_AI_PROVIDER == "groq":
-    PRIMARY_AI_MODEL = DEFAULT_GROQ_MODEL
-PRIMARY_AI_API_KEY = PRIMARY_AI_API_KEY_RAW or LEGACY_FALLBACK_AI_API_KEY_RAW
-PRIMARY_AI_API_KEYS_MERGED_RAW = PRIMARY_AI_API_KEYS_RAW or LEGACY_FALLBACK_AI_API_KEYS_RAW
-PRIMARY_AI_API_KEY_POOL = tuple(
+FALLBACK_AI_PROVIDER = (os.getenv("FALLBACK_AI_PROVIDER", "") or "").strip().lower()
+FALLBACK_AI_BASE_URL = (os.getenv("FALLBACK_AI_BASE_URL", "") or "").strip()
+FALLBACK_AI_MODEL = (os.getenv("FALLBACK_AI_MODEL", "") or "").strip()
+FALLBACK_AI_API_KEY = (os.getenv("FALLBACK_AI_API_KEY", "") or "").strip()
+FALLBACK_AI_API_KEYS_RAW = (os.getenv("FALLBACK_AI_API_KEYS", "") or "").strip()
+FALLBACK_AI_API_KEY_POOL = tuple(
     dict.fromkeys(
         key.strip()
-        for key in [*re.split(r"[\n,;]+", PRIMARY_AI_API_KEYS_MERGED_RAW), PRIMARY_AI_API_KEY]
+        for key in [*re.split(r"[\n,;]+", FALLBACK_AI_API_KEYS_RAW), FALLBACK_AI_API_KEY]
         if (key or "").strip()
     )
 )
-PRIMARY_AI_TIMEOUT_SECONDS_RAW = (os.getenv("PRIMARY_AI_TIMEOUT_SECONDS", "") or "").strip()
-LEGACY_FALLBACK_AI_TIMEOUT_SECONDS_RAW = (os.getenv("FALLBACK_AI_TIMEOUT_SECONDS", "") or "").strip()
-PRIMARY_AI_TIMEOUT_SECONDS = float(PRIMARY_AI_TIMEOUT_SECONDS_RAW or LEGACY_FALLBACK_AI_TIMEOUT_SECONDS_RAW or "25")
-PRIMARY_AI_REFERER = (os.getenv("PRIMARY_AI_REFERER", "") or "").strip() or (
-    (os.getenv("FALLBACK_AI_REFERER", "") or "").strip()
-)
-PRIMARY_AI_APP_NAME = (os.getenv("PRIMARY_AI_APP_NAME", "") or "").strip() or (
-    (os.getenv("FALLBACK_AI_APP_NAME", "UT Nguyen Backend") or "").strip()
-)
-PRIMARY_AI_USING_LEGACY_FALLBACK_ENV = bool(
-    not any(
-        (
-            PRIMARY_AI_PROVIDER_RAW,
-            PRIMARY_AI_BASE_URL_RAW,
-            PRIMARY_AI_MODEL_RAW,
-            PRIMARY_AI_API_KEY_RAW,
-            PRIMARY_AI_API_KEYS_RAW,
-            PRIMARY_AI_TIMEOUT_SECONDS_RAW,
-            PRIMARY_AI_REFERER,
-        )
-    )
-    and any(
-        (
-            LEGACY_FALLBACK_AI_PROVIDER_RAW,
-            LEGACY_FALLBACK_AI_BASE_URL_RAW,
-            LEGACY_FALLBACK_AI_MODEL_RAW,
-            LEGACY_FALLBACK_AI_API_KEY_RAW,
-            LEGACY_FALLBACK_AI_API_KEYS_RAW,
-            LEGACY_FALLBACK_AI_TIMEOUT_SECONDS_RAW,
-        )
-    )
-)
-FALLBACK_AI_PROVIDER = PRIMARY_AI_PROVIDER
-FALLBACK_AI_BASE_URL = PRIMARY_AI_BASE_URL
-FALLBACK_AI_MODEL = PRIMARY_AI_MODEL
-FALLBACK_AI_API_KEY = PRIMARY_AI_API_KEY
-FALLBACK_AI_API_KEYS_RAW = PRIMARY_AI_API_KEYS_MERGED_RAW
-FALLBACK_AI_API_KEY_POOL = PRIMARY_AI_API_KEY_POOL
-FALLBACK_AI_TIMEOUT_SECONDS = PRIMARY_AI_TIMEOUT_SECONDS
-FALLBACK_AI_REFERER = PRIMARY_AI_REFERER
-FALLBACK_AI_APP_NAME = PRIMARY_AI_APP_NAME
+FALLBACK_AI_TIMEOUT_SECONDS = float(os.getenv("FALLBACK_AI_TIMEOUT_SECONDS", "25"))
+FALLBACK_AI_REFERER = (os.getenv("FALLBACK_AI_REFERER", "") or "").strip()
+FALLBACK_AI_APP_NAME = (os.getenv("FALLBACK_AI_APP_NAME", "UT Nguyen Backend") or "").strip()
 GEMINI_KEY_CURSOR = 0
 GEMINI_KEY_CURSOR_LOCK = threading.Lock()
 FALLBACK_AI_KEY_CURSOR = 0
@@ -239,24 +184,16 @@ if LEGACY_GEMINI_API_KEY_PRESENT:
     )
 
 app.logger.info(
-    "AI backend config: primary_provider=%s primary_model=%s primary_key_pool_size=%s primary_base_url=%s legacy_fallback_env_used=%s gemini_key_pool_size=%s legacy_single_key_ignored=%s",
-    PRIMARY_AI_PROVIDER,
-    PRIMARY_AI_MODEL,
-    len(PRIMARY_AI_API_KEY_POOL),
-    PRIMARY_AI_BASE_URL,
-    PRIMARY_AI_USING_LEGACY_FALLBACK_ENV,
+    "AI backend config: gemini_key_pool_size=%s legacy_single_key_ignored=%s fallback_provider=%s fallback_configured=%s",
     len(GEMINI_API_KEY_POOL),
     LEGACY_GEMINI_API_KEY_PRESENT,
-)
-app.logger.info(
-    "AI backend capability: primary_configured=%s gemini_fallback_configured=%s",
+    FALLBACK_AI_PROVIDER or "",
     bool(
-        PRIMARY_AI_PROVIDER
-        and PRIMARY_AI_BASE_URL
-        and PRIMARY_AI_MODEL
-        and PRIMARY_AI_API_KEY_POOL
+        FALLBACK_AI_PROVIDER
+        and FALLBACK_AI_BASE_URL
+        and FALLBACK_AI_MODEL
+        and FALLBACK_AI_API_KEY_POOL
     ),
-    bool(GEMINI_API_KEY_POOL),
 )
 
 knowledge = KNOWLEDGE_PATH.read_text(encoding="utf-8") if KNOWLEDGE_PATH.exists() else ""
@@ -507,16 +444,16 @@ def build_fallback_ai_failure_message(error: Exception | None) -> str:
     reason = get_fallback_ai_error_reason(error)
     if reason == "unsupported_location":
         return (
-            f"Da, may chu dang goi {FALLBACK_AI_PROVIDER.upper()} tu khu vuc chua duoc ho tro nen toi chua the tra loi AI luc nay. "
-            "Ban thu doi moi truong chay backend hoac doi provider nhe."
+            "Da, nha cung cap AI du phong cung dang chan khu vuc hien tai, nen toi chua the tra loi AI luc nay. "
+            "Ban thu doi provider hoac chuyen backend sang moi truong duoc ho tro nhe."
         )
     if reason in {"timeout", "connection_error", "retryable_api_error"}:
         return (
-            f"Da, ket noi den {FALLBACK_AI_PROVIDER.upper()} dang cham hoac tam thoi gian doan. "
+            "Da, ket noi den API AI du phong dang cham hoac tam thoi gian doan. "
             "Ban thu lai sau it phut giup minh nhe."
         )
     return (
-        f"Da, backend da thu {FALLBACK_AI_PROVIDER.upper()} nhung van chua nhan duoc cau tra loi hop le. "
+        "Da, backend da thu provider AI du phong nhung van chua nhan duoc cau tra loi hop le. "
         "Ban kiem tra lai API key, model va base URL tren server giup minh nhe."
     )
 
@@ -546,41 +483,38 @@ def update_ai_runtime_status(*, provider: str | None, status: str, reason: str) 
 def build_chat_ai_capability_payload(user_row: sqlite3.Row | None = None) -> dict:
     if user_row is None:
         return {
-            "provider": FALLBACK_AI_PROVIDER,
+            "provider": "gemini",
             "available": False,
             "status": "unavailable",
             "reason": "missing_authenticated_user",
             "checked_at": None,
-            "primary_provider": FALLBACK_AI_PROVIDER or None,
-            "primary_configured": has_fallback_ai_config(),
-            "gemini_fallback_configured": has_server_gemini_key_pool(),
+            "fallback_provider": FALLBACK_AI_PROVIDER or None,
+            "fallback_configured": has_fallback_ai_config(),
         }
 
-    primary_configured = has_fallback_ai_config()
-    gemini_fallback_configured = has_server_gemini_key_pool()
+    primary_configured = has_server_gemini_key_pool()
+    fallback_configured = has_fallback_ai_config()
 
-    if not primary_configured and not gemini_fallback_configured and genai is None:
+    if not primary_configured and not fallback_configured and genai is None:
         return {
-            "provider": FALLBACK_AI_PROVIDER or "groq",
+            "provider": "gemini",
+            "available": False,
+            "status": "unavailable",
+            "reason": "sdk_missing",
+            "checked_at": None,
+            "fallback_provider": FALLBACK_AI_PROVIDER or None,
+            "fallback_configured": fallback_configured,
+        }
+
+    if not primary_configured and not fallback_configured:
+        return {
+            "provider": FALLBACK_AI_PROVIDER or "gemini",
             "available": False,
             "status": "unavailable",
             "reason": "missing_server_provider_config",
             "checked_at": None,
-            "primary_provider": FALLBACK_AI_PROVIDER or None,
-            "primary_configured": primary_configured,
-            "gemini_fallback_configured": gemini_fallback_configured,
-        }
-
-    if not primary_configured and not gemini_fallback_configured:
-        return {
-            "provider": FALLBACK_AI_PROVIDER or "groq",
-            "available": False,
-            "status": "unavailable",
-            "reason": "missing_server_provider_config",
-            "checked_at": None,
-            "primary_provider": FALLBACK_AI_PROVIDER or None,
-            "primary_configured": primary_configured,
-            "gemini_fallback_configured": gemini_fallback_configured,
+            "fallback_provider": FALLBACK_AI_PROVIDER or None,
+            "fallback_configured": fallback_configured,
         }
 
     with AI_RUNTIME_STATUS_LOCK:
@@ -589,8 +523,8 @@ def build_chat_ai_capability_payload(user_row: sqlite3.Row | None = None) -> dic
     status = runtime_status.get("status") or "unknown"
     reason = runtime_status.get("reason") or "unverified"
     checked_at = runtime_status.get("checked_at")
-    provider = runtime_status.get("provider") or (FALLBACK_AI_PROVIDER if primary_configured else "gemini")
-    available = primary_configured or gemini_fallback_configured
+    provider = runtime_status.get("provider") or ("gemini" if primary_configured else FALLBACK_AI_PROVIDER)
+    available = primary_configured or fallback_configured
 
     if status == "unknown":
         status = "configured"
@@ -601,9 +535,10 @@ def build_chat_ai_capability_payload(user_row: sqlite3.Row | None = None) -> dic
         "status": status,
         "reason": reason,
         "checked_at": checked_at,
-        "primary_provider": FALLBACK_AI_PROVIDER or None,
+        "primary_provider": "gemini",
         "primary_configured": primary_configured,
-        "gemini_fallback_configured": gemini_fallback_configured,
+        "fallback_provider": FALLBACK_AI_PROVIDER or None,
+        "fallback_configured": fallback_configured,
     }
 
 
@@ -616,12 +551,11 @@ def build_capabilities_payload(user_row: sqlite3.Row | None = None) -> dict:
 def build_fallback_ai_diag_context() -> dict:
     return {
         **build_auth_diag_context(),
-        "primary_provider": FALLBACK_AI_PROVIDER or None,
-        "primary_base_url": FALLBACK_AI_BASE_URL or None,
-        "primary_model": FALLBACK_AI_MODEL or None,
-        "primary_key_pool_size": len(FALLBACK_AI_API_KEY_POOL),
-        "primary_timeout_seconds": FALLBACK_AI_TIMEOUT_SECONDS,
-        "primary_using_legacy_fallback_env": PRIMARY_AI_USING_LEGACY_FALLBACK_ENV,
+        "fallback_provider": FALLBACK_AI_PROVIDER or None,
+        "fallback_base_url": FALLBACK_AI_BASE_URL or None,
+        "fallback_model": FALLBACK_AI_MODEL or None,
+        "fallback_key_pool_size": len(FALLBACK_AI_API_KEY_POOL),
+        "fallback_timeout_seconds": FALLBACK_AI_TIMEOUT_SECONDS,
     }
 
 
@@ -937,14 +871,14 @@ def run_gemini_health_check() -> dict:
 
 def run_fallback_ai_health_check() -> dict:
     if not has_fallback_ai_config():
-        update_fallback_ai_runtime_status(status="unavailable", reason="missing_primary_provider_config")
+        update_fallback_ai_runtime_status(status="unavailable", reason="missing_fallback_provider_config")
         return {
             "ok": False,
             "provider": FALLBACK_AI_PROVIDER or None,
-            "reason": "missing_primary_provider_config",
+            "reason": "missing_fallback_provider_config",
             "attempted_count": 0,
             "attempts": [],
-            "error": "missing_primary_provider_config",
+            "error": "missing_fallback_provider_config",
         }
 
     api_keys = get_rotating_fallback_ai_api_keys()
@@ -1009,14 +943,14 @@ def run_fallback_ai_health_check() -> dict:
 
 
 def get_gemini_unavailable_reason(user_row: sqlite3.Row | None) -> str:
-    if not has_fallback_ai_config() and (genai is None or not has_server_gemini_key_pool()):
-        return "missing_server_provider_config"
+    if genai is None and not has_fallback_ai_config():
+        return "sdk_missing"
     if user_row is None:
         return "missing_authenticated_user"
-    if has_fallback_ai_config():
-        return "primary_ready"
+    if not has_server_gemini_key_pool() and has_fallback_ai_config():
+        return "missing_gemini_key_pool_using_fallback"
     if not has_server_gemini_key_pool():
-        return "missing_gemini_fallback_key_pool"
+        return "missing_server_key_pool"
     return "unknown"
 
 
@@ -1027,11 +961,9 @@ def build_gemini_diag_context(user_row: sqlite3.Row | None) -> dict:
         "env_gemini_keys_present": bool(GEMINI_API_KEYS_RAW),
         "gemini_key_pool_size": len(GEMINI_API_KEY_POOL),
         "legacy_gemini_api_key_ignored": LEGACY_GEMINI_API_KEY_PRESENT,
-        "primary_provider": FALLBACK_AI_PROVIDER or None,
-        "primary_configured": has_fallback_ai_config(),
-        "primary_key_pool_size": len(FALLBACK_AI_API_KEY_POOL),
-        "primary_model": FALLBACK_AI_MODEL or None,
-        "primary_using_legacy_fallback_env": PRIMARY_AI_USING_LEGACY_FALLBACK_ENV,
+        "fallback_provider": FALLBACK_AI_PROVIDER or None,
+        "fallback_configured": has_fallback_ai_config(),
+        "fallback_key_pool_size": len(FALLBACK_AI_API_KEY_POOL),
         "has_personal_gemini_key": False,
         "personal_gemini_key_preview": "",
         "user_row_present": user_row is not None,
@@ -3116,11 +3048,6 @@ def chat_stream():
             yield realtime_reply
             return
 
-        reply = generate_reply(user_text, history)
-        yield reply
-        maybe_log_emotion_signal(g.current_user, user_text, source="assistant_chat")
-        return
-
         fallback_keys = get_rotating_fallback_ai_api_keys()
         current_model = get_user_model(g.current_user)
         if current_model is None and not fallback_keys:
@@ -4046,32 +3973,10 @@ def get_user_model(user_row: sqlite3.Row | None):
 
 def build_unavailable_message(user_row: sqlite3.Row | None = None) -> str:
     log_mobile_diag(
-        "primary_ai_unavailable",
+        "gemini_unavailable",
         level="warning",
         reason=get_gemini_unavailable_reason(user_row),
         **build_gemini_diag_context(user_row),
-    )
-    if has_fallback_ai_config():
-        update_fallback_ai_runtime_status(status="degraded", reason="unknown")
-        update_ai_runtime_status(provider=FALLBACK_AI_PROVIDER, status="degraded", reason="unknown")
-        return (
-            f"Da, hien {FALLBACK_AI_PROVIDER.upper()} chua san sang de phan hoi. "
-            "Ban thu lai giup minh sau it phut nhe."
-        )
-
-    if has_server_gemini_key_pool():
-        update_gemini_runtime_status(status="configured", reason="legacy_fallback_ready")
-        update_ai_runtime_status(provider="gemini", status="configured", reason="legacy_fallback_ready")
-        return "Da, backend dang thieu cau hinh provider chinh. Ban kiem tra lai env PRIMARY_AI_* giup minh nhe."
-
-    update_ai_runtime_status(
-        provider=FALLBACK_AI_PROVIDER,
-        status="unavailable",
-        reason="missing_server_provider_config",
-    )
-    return (
-        f"Da, he thong chua duoc cau hinh {FALLBACK_AI_PROVIDER.upper()} tren server nen toi chua the tra loi AI. "
-        "Ban them env PRIMARY_AI_API_KEY hoac PRIMARY_AI_API_KEYS giup minh nhe."
     )
     if genai is None:
         update_gemini_runtime_status(status="unavailable", reason="sdk_missing")
@@ -4090,150 +3995,6 @@ def build_unavailable_message(user_row: sqlite3.Row | None = None) -> str:
     return "Dạ, hiện tôi chưa sẵn sàng để phản hồi. Bạn thử lại giúp tôi nhé."
 
 
-def generate_reply_with_provider_priority(question: str, history: list[str], prompt: str) -> str:
-    primary_keys = get_rotating_fallback_ai_api_keys()
-    if not primary_keys and not has_server_gemini_key_pool():
-        return build_unavailable_message(g.current_user)
-
-    last_primary_error: Exception | None = None
-    if primary_keys:
-        for primary_key in primary_keys:
-            started_at = time.perf_counter()
-            try:
-                reply = request_fallback_ai_reply(prompt, primary_key)
-                reply = normalize_generated_reply(question, history, reply)
-                if reply:
-                    update_fallback_ai_runtime_status(status="available", reason="ok")
-                    update_ai_runtime_status(provider=FALLBACK_AI_PROVIDER, status="available", reason="ok")
-                    log_mobile_diag(
-                        "assistant_reply_generated",
-                        source=FALLBACK_AI_PROVIDER,
-                        question_preview=question[:120],
-                        reply_preview=reply[:160],
-                    )
-                    return reply
-            except Exception as error:
-                last_primary_error = error
-                primary_reason = get_fallback_ai_error_reason(error)
-                log_ai_provider_attempt(
-                    "ai_provider_primary_failed",
-                    level="warning",
-                    provider=FALLBACK_AI_PROVIDER,
-                    model=FALLBACK_AI_MODEL,
-                    latency_ms=round((time.perf_counter() - started_at) * 1000, 2),
-                    reason=primary_reason,
-                    key_preview=mask_secret(primary_key),
-                    error=str(error),
-                    question_preview=question[:120],
-                    **build_fallback_ai_diag_context(),
-                )
-                if primary_reason == "unsupported_location":
-                    break
-
-        if last_primary_error is not None:
-            primary_failure_reason = get_fallback_ai_error_reason(last_primary_error)
-            log_mobile_diag(
-                "primary_ai_reply_failed",
-                level="error",
-                question_preview=question[:120],
-                history_size=len(history),
-                error_reason=primary_failure_reason,
-                error=str(last_primary_error),
-                attempted_key_count=len(primary_keys),
-                **build_fallback_ai_diag_context(),
-            )
-            update_fallback_ai_runtime_status(
-                status="blocked" if primary_failure_reason == "unsupported_location" else "degraded",
-                reason=primary_failure_reason,
-            )
-            update_ai_runtime_status(
-                provider=FALLBACK_AI_PROVIDER,
-                status="blocked" if primary_failure_reason == "unsupported_location" else "degraded",
-                reason=primary_failure_reason,
-            )
-
-    gemini_api_keys = get_rotating_gemini_api_keys()
-    if gemini_api_keys:
-        log_ai_provider_attempt(
-            "ai_provider_legacy_failover_started",
-            level="warning",
-            from_provider=FALLBACK_AI_PROVIDER if primary_keys else "unconfigured_primary",
-            to_provider="gemini",
-            reason=get_fallback_ai_error_reason(last_primary_error) if last_primary_error is not None else "primary_not_configured",
-            question_preview=question[:120],
-            **build_gemini_diag_context(g.current_user),
-        )
-        last_gemini_error: Exception | None = None
-        for api_key in gemini_api_keys:
-            current_model = build_gemini_model(api_key)
-            if current_model is None:
-                continue
-            started_at = time.perf_counter()
-            try:
-                response = current_model.generate_content(prompt)
-                reply = (getattr(response, "text", "") or "").strip()
-                if reply:
-                    update_gemini_runtime_status(status="available", reason="ok")
-                    update_ai_runtime_status(provider="gemini", status="available", reason="ok")
-                    reply = normalize_generated_reply(
-                        question,
-                        history,
-                        reply,
-                        current_model=current_model,
-                    )
-                    log_mobile_diag(
-                        "assistant_reply_generated",
-                        source="gemini",
-                        question_preview=question[:120],
-                        reply_preview=reply[:160],
-                    )
-                    return reply
-            except Exception as error:
-                last_gemini_error = error
-                log_ai_provider_attempt(
-                    "ai_provider_legacy_failover_failed",
-                    level="warning",
-                    provider="gemini",
-                    model=MODEL_NAME,
-                    latency_ms=round((time.perf_counter() - started_at) * 1000, 2),
-                    key_preview=mask_secret(api_key),
-                    reason=get_gemini_error_reason(error),
-                    error=str(error),
-                    question_preview=question[:120],
-                    **build_gemini_diag_context(g.current_user),
-                )
-                if not is_retryable_gemini_error(error):
-                    break
-
-        if last_gemini_error is not None:
-            gemini_failure_reason = get_gemini_error_reason(last_gemini_error)
-            update_gemini_runtime_status(
-                status="blocked" if gemini_failure_reason == "unsupported_location" else "degraded",
-                reason=gemini_failure_reason,
-            )
-            update_ai_runtime_status(
-                provider="gemini",
-                status="blocked" if gemini_failure_reason == "unsupported_location" else "degraded",
-                reason=gemini_failure_reason,
-            )
-            log_mobile_diag(
-                "gemini_reply_failed",
-                level="error",
-                question_preview=question[:120],
-                history_size=len(history),
-                error_reason=gemini_failure_reason,
-                error=str(last_gemini_error),
-                attempted_key_count=len(gemini_api_keys),
-                **build_gemini_diag_context(g.current_user),
-            )
-            return build_gemini_failure_message(last_gemini_error)
-
-    if last_primary_error is not None:
-        return build_fallback_ai_failure_message(last_primary_error)
-
-    return build_unavailable_message(g.current_user)
-
-
 def generate_reply(question: str, history: list[str]) -> str:
     realtime_reply = build_realtime_reply(question, g.current_user)
     if realtime_reply is not None:
@@ -4247,9 +4008,6 @@ def generate_reply(question: str, history: list[str]) -> str:
         return realtime_reply
 
     prompt = build_prompt(question, history)
-    reply = generate_reply_with_provider_priority(question, history, prompt)
-    remember_turn(history, question, reply)
-    return reply
     api_keys = get_rotating_gemini_api_keys()
     fallback_keys = get_rotating_fallback_ai_api_keys()
     if not api_keys and not fallback_keys:
@@ -4425,11 +4183,7 @@ def health():
     return jsonify(
         {
             "status": "ok",
-            "model_ready": has_fallback_ai_config() or has_server_gemini_key_pool(),
-            "primary_provider": FALLBACK_AI_PROVIDER,
-            "primary_model": FALLBACK_AI_MODEL,
-            "primary_configured": has_fallback_ai_config(),
-            "gemini_fallback_configured": has_server_gemini_key_pool(),
+            "model_ready": genai is not None,
             "knowledge_loaded": bool(knowledge_chunks),
             "database_ready": DB_PATH.exists(),
         }
@@ -4447,17 +4201,17 @@ def debug_gemini_health():
     force_refresh = (request.args.get("force") or "").strip().lower() in {"1", "true", "yes", "on"}
     egress_ip = get_public_egress_ip_info(force_refresh=force_refresh)
     health_check = run_gemini_health_check()
-    primary_health_check = run_fallback_ai_health_check()
+    fallback_health_check = run_fallback_ai_health_check()
     capability = build_chat_ai_capability_payload(g.current_user)
     log_mobile_diag(
-        "ai_health_checked",
+        "gemini_health_checked",
         egress_ip=egress_ip.get("ip"),
         health_reason=health_check.get("reason"),
-        primary_health_reason=primary_health_check.get("reason"),
+        fallback_health_reason=fallback_health_check.get("reason"),
         capability_status=capability.get("status"),
         capability_reason=capability.get("reason"),
         attempted_count=health_check.get("attempted_count"),
-        primary_attempted_count=primary_health_check.get("attempted_count"),
+        fallback_attempted_count=fallback_health_check.get("attempted_count"),
         force_refresh=force_refresh,
     )
     return jsonify(
@@ -4465,9 +4219,8 @@ def debug_gemini_health():
             "server_time": utcnow_iso(),
             "egress_ip": egress_ip,
             "chat_ai": capability,
-            "primary_ai_health": primary_health_check,
             "gemini_health": health_check,
-            "fallback_ai_health": primary_health_check,
+            "fallback_ai_health": fallback_health_check,
         }
     )
 
