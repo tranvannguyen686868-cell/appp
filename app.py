@@ -81,8 +81,9 @@ GEMINI_API_KEY_POOL = tuple(
 GEMINI_GENERATION_CONFIG = {
     "temperature": 0.35,
     "candidate_count": 1,
-    "max_output_tokens": 768,
+    "max_output_tokens": int(os.getenv("GEMINI_MAX_OUTPUT_TOKENS", "1536")),
 }
+GEMINI_CONTINUATION_MAX_ATTEMPTS = int(os.getenv("GEMINI_CONTINUATION_MAX_ATTEMPTS", "1"))
 FALLBACK_AI_PROVIDER = (os.getenv("FALLBACK_AI_PROVIDER", "") or "").strip().lower()
 FALLBACK_AI_BASE_URL = (os.getenv("FALLBACK_AI_BASE_URL", "") or "").strip()
 FALLBACK_AI_MODEL = (os.getenv("FALLBACK_AI_MODEL", "") or "").strip()
@@ -355,6 +356,37 @@ def build_gemini_model(api_key: str):
         MODEL_NAME,
         generation_config=GEMINI_GENERATION_CONFIG,
     )
+
+
+def enum_label(value) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    dot_index = raw.rfind(".")
+    return raw[dot_index + 1 :] if dot_index >= 0 else raw
+
+
+def get_gemini_finish_reasons(response) -> list[str]:
+    candidates = getattr(response, "candidates", None)
+    if not candidates:
+        return []
+
+    reasons: list[str] = []
+    for candidate in candidates:
+        finish_reason = getattr(candidate, "finish_reason", None)
+        if finish_reason is None and isinstance(candidate, dict):
+            finish_reason = candidate.get("finish_reason") or candidate.get("finishReason")
+        label = enum_label(finish_reason).upper()
+        if label:
+            reasons.append(label)
+    return reasons
+
+
+def should_request_gemini_continuation(response, reply: str) -> bool:
+    finish_reasons = get_gemini_finish_reasons(response)
+    if any(reason in {"MAX_TOKENS", "MAXTOKENS", "LENGTH"} for reason in finish_reasons):
+        return True
+    return not is_complete_assistant_reply(reply)
 
 
 def is_retryable_gemini_error(error: Exception) -> bool:
@@ -3938,6 +3970,98 @@ Câu trả lời viết lại:
     return rewritten_reply
 
 
+def continue_assistant_reply(
+    question: str,
+    history: list[str],
+    draft_reply: str,
+    current_model,
+):
+    if current_model is None:
+        return None, None
+
+    user_title = get_user_voice_title(g.current_user)
+    assistant_self = get_assistant_self_reference(g.current_user)
+    history_text = "\n".join(history[-4:]) or "Chưa có lịch sử hội thoại."
+    live_context = build_live_context(question)
+    prompt = f"""
+Bạn đang viết tiếp một câu trả lời bị dừng giữa chừng.
+
+Mục tiêu:
+- Viết tiếp NGAY từ chỗ đang dở, không lặp lại từ đầu.
+- Giữ nguyên giọng điệu thân thiện, tự nhiên.
+- Nếu người dùng yêu cầu kể chuyện, hãy kể nốt câu chuyện cho trọn vẹn với phần kết rõ ràng.
+- Nếu là lời khuyên/hướng dẫn, hãy viết nốt các ý còn dang dở để câu trả lời hoàn chỉnh.
+- Chỉ trả về PHẦN VIẾT TIẾP, không nhắc lại nguyên văn phần đã có.
+- Xưng hô với người dùng là "{user_title.lower()}". Nếu cần tự xưng, hãy dùng "{assistant_self}".
+
+Live context:
+{live_context}
+
+Lịch sử hội thoại gần đây:
+{history_text}
+
+Câu hỏi của người dùng:
+{question}
+
+Phần trả lời đã có:
+{draft_reply}
+
+Phần viết tiếp:
+""".strip()
+
+    try:
+        response = current_model.generate_content(prompt)
+    except Exception:
+        return None, None
+
+    continuation = (getattr(response, "text", "") or "").strip()
+    if not continuation:
+        return None, response
+
+    return continuation, response
+
+
+def finalize_gemini_reply(
+    question: str,
+    history: list[str],
+    draft_reply: str,
+    current_model,
+    response,
+) -> str:
+    reply = (draft_reply or "").strip()
+    current_response = response
+
+    for _ in range(max(0, GEMINI_CONTINUATION_MAX_ATTEMPTS)):
+        if not reply or not should_request_gemini_continuation(current_response, reply):
+            break
+
+        continuation, continuation_response = continue_assistant_reply(
+            question,
+            history,
+            reply,
+            current_model,
+        )
+        if not continuation:
+            break
+
+        reply = f"{reply.rstrip()} {continuation.lstrip()}".strip()
+        current_response = continuation_response
+        log_mobile_diag(
+            "gemini_reply_continued",
+            question_preview=question[:120],
+            reply_preview=reply[:160],
+            finish_reasons=get_gemini_finish_reasons(current_response),
+        )
+
+    reply = normalize_generated_reply(
+        question,
+        history,
+        reply,
+        current_model=current_model,
+    )
+    return reply
+
+
 def get_chat_history_key() -> str:
     if g.current_user is not None:
         return f"user:{g.current_user['id']}:device:{g.current_device['device_id']}"
@@ -4035,6 +4159,13 @@ def generate_reply(question: str, history: list[str]) -> str:
             if reply:
                 update_gemini_runtime_status(status="available", reason="ok")
                 update_ai_runtime_status(provider="gemini", status="available", reason="ok")
+                reply = finalize_gemini_reply(
+                    question,
+                    history,
+                    reply,
+                    current_model,
+                    response,
+                )
                 if should_expand_assistant_reply(question, reply):
                     expanded_reply = expand_assistant_reply(
                         question,
