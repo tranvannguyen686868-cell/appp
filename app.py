@@ -5662,6 +5662,9 @@ def get_user_voice_title(user_row: sqlite3.Row | None) -> str:
     return {
         "grandfather": "Ông",
         "grandmother": "Bà",
+        "father": "Ba",
+        "mother": "Mẹ",
+        "elder": "Bác",
     }.get(role_key, "Bạn")
 
 
@@ -5670,6 +5673,9 @@ def get_assistant_self_reference(user_row: sqlite3.Row | None) -> str:
     return {
         "grandfather": "chau",
         "grandmother": "chau",
+        "father": "con",
+        "mother": "con",
+        "elder": "chau",
     }.get(role_key, "minh")
 
 
@@ -5856,6 +5862,12 @@ def maybe_log_emotion_signal(user_row: sqlite3.Row | None, message_text: str, *,
     )
     emotion_log_id = cursor.lastrowid
 
+    alert_message_text = message_text.strip()
+    alert_message_preview = (
+        alert_message_text
+        if len(alert_message_text) <= 160
+        else f"{alert_message_text[:157]}..."
+    )
     should_alert = analysis["emotion_score"] <= EMOTION_ALERT_THRESHOLD and not has_recent_emotion_alert(user_row["id"])
     if should_alert:
         admin_user_ids = get_family_admin_user_ids(
@@ -5868,7 +5880,8 @@ def maybe_log_emotion_signal(user_row: sqlite3.Row | None, message_text: str, *,
                 title="Icare canh bao cam xuc",
                 body=(
                     f"{user_row['full_name']} dang co dau hieu buon/chan. "
-                    f"Diem cam xuc hien tai: {analysis['emotion_score']}/100."
+                    f"Diem cam xuc hien tai: {analysis['emotion_score']}/100. "
+                    f"Cau vua noi: \"{alert_message_preview}\""
                 ),
                 data={
                     "event_type": "emotion_alert",
@@ -5876,6 +5889,11 @@ def maybe_log_emotion_signal(user_row: sqlite3.Row | None, message_text: str, *,
                     "user_id": user_row["id"],
                     "emotion_score": analysis["emotion_score"],
                     "risk_level": analysis["risk_level"],
+                    "emotion_label": analysis["emotion_label"],
+                    "message_text": alert_message_text,
+                    "message_preview": alert_message_preview,
+                    "detected_keywords": ", ".join(analysis["detected_keywords"]),
+                    "created_at": now,
                 },
             )
 
